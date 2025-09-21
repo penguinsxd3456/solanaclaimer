@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sol Incinerator</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+<style>
+    body { font-family: 'Roboto Mono', monospace; background: #0d0628; color: #d1b4ff; min-height:100vh; display:flex; justify-content:center; align-items:center; }
+    .card { background:#1a0c41; border:1px solid #7c3aed; border-radius:1rem; padding:2rem; width:90%; max-width:600px; }
+    .burn-button { background-color: #d84315; color: #fff; padding:0.5rem 1rem; border-radius:0.5rem; font-weight:bold; transition:all 0.2s; }
+    .burn-button:hover { background-color:#a71f00; }
+    .scan-button { background-color: #c084fc; color: #1a0c41; padding:0.5rem 1rem; border-radius:0.5rem; font-weight:bold; }
+    .scan-button:hover { background-color:#1a0c41; color:#c084fc; }
+</style>
+</head>
+<body>
+<div class="card">
+    <h1 class="text-2xl font-bold text-center mb-4">Sol Incinerator</h1>
+    <button id="connect-wallet-btn" class="w-full flex items-center justify-center mb-4 scan-button">
+        <i class="fas fa-wallet mr-2"></i> Connect Wallet
+    </button>
+    <div id="wallet-display" class="text-center mb-4"></div>
+    <div id="message" class="text-center mb-4"></div>
+    <div id="token-list" class="space-y-2"></div>
+</div>
+
+<script src="https://unpkg.com/@solana/web3.js@1.45.1/lib/index.iife.js"></script>
+<script>
+const connectBtn = document.getElementById('connect-wallet-btn');
+const walletDisplay = document.getElementById('wallet-display');
+const messageBox = document.getElementById('message');
+const tokenList = document.getElementById('token-list');
+
+let provider = null;
+let publicKey = null;
+let connection = null;
+
+const BACKEND_URL = 'http://localhost:3000'; // Change if deployed
+
+function showMessage(msg, error=false) {
+    messageBox.textContent = msg;
+    messageBox.style.color = error ? 'red' : '#d1b4ff';
+}
+
+window.onload = () => {
+    if (!("solana" in window)) {
+        showMessage("No Solana wallet detected. Install Phantom or Solflare.", true);
+        connectBtn.disabled = true;
+    }
+};
+
+connectBtn.addEventListener('click', async () => {
+    if (!("solana" in window)) return;
+    provider = window.solana;
+    try {
+        const resp = await provider.connect();
+        publicKey = resp.publicKey;
+        walletDisplay.textContent = `Wallet: ${publicKey.toBase58()}`;
+        connection = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl('mainnet-beta'), 'confirmed');
+        showMessage("Connected! Scanning tokens...");
+        fetchAndDisplayTokens();
+    } catch (e) {
+        showMessage(`Connection failed: ${e.message}`, true);
+    }
+});
+
+async function fetchAndDisplayTokens() {
+    tokenList.innerHTML = '';
+    try {
+        const tokenAccounts = await connection.getParsedTokenAccountsByOwner(publicKey, { programId: solanaWeb3.TOKEN_PROGRAM_ID });
+        if (tokenAccounts.value.length === 0) {
+            tokenList.textContent = 'No tokens found.';
+            return;
+        }
+        tokenAccounts.value.forEach(accountInfo => {
+            const token = accountInfo.account.data.parsed.info;
+            const mint = token.mint;
+            const balance = token.tokenAmount.uiAmount || 0;
+            const isVacant = balance === 0;
+            const div = document.createElement('div');
+            div.classList.add('flex', 'justify-between', 'items-center', 'p-2', 'border-b', 'border-[#7c3aed]');
+            div.innerHTML = `
+                <div>
+                    <p class="font-bold">${isVacant ? `Vacant Account: ${mint.substring(0,4)}...` : `Token: ${mint.substring(0,4)}...`}</p>
+                    <p class="text-sm">${isVacant ? 'Ready for cleanup' : 'Balance: '+balance}</p>
+                </div>
+                <button class="burn-button" data-mint="${mint}" data-vacant="${isVacant}">${isVacant?'Cleanup':'Burn'}</button>
+            `;
+            tokenList.appendChild(div);
+        });
+        document.querySelectorAll('.burn-button').forEach(btn => {
+            btn.addEventListener('click', e => {
+                const mint = e.target.dataset.mint;
+                const isVacant = e.target.dataset.vacant === 'true';
+                burnAndRefund(mint, isVacant, e.target.closest('div'));
+            });
+        });
+    } catch (err) {
+        showMessage(`Failed to fetch tokens: ${err.message}`, true);
+    }
+}
+
+async function burnAndRefund(mint, isVacant, element) {
+    showMessage(`Burning ${isVacant?'vacant account':'token'} ${mint}...`);
+    // Simulate burn delay
+    setTimeout(async () => {
+        element.remove();
+        showMessage(`"${mint}" burned! Requesting refund from backend...`);
+        try {
+            const resp = await fetch(BACKEND_URL + '/refund', {
+                method: 'POST',
+                headers: { 'Content-Type':'application/json' },
+                body: JSON.stringify({ signature: mint }) // using mint as dummy tx signature
+            });
+            const data = await resp.json();
+            if (data.ok) {
+                showMessage(`Refund sent: ${data.lamports/1e9} SOL`);
+            } else {
+                showMessage(`Refund failed: ${data.reason||data.error}`, true);
+            }
+        } catch (err) {
+            showMessage(`Refund request error: ${err.message}`, true);
+        }
+    }, 1500);
+}
+</script>
+</body>
+</html>
