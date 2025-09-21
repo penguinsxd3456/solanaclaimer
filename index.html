@@ -3,47 +3,156 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sol Incinerator</title>
+<title>Claim SOL Rent</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
 <style>
-    body { font-family: 'Roboto Mono', monospace; background: #0d0628; color: #d1b4ff; min-height:100vh; display:flex; justify-content:center; align-items:center; }
-    .card { background:#1a0c41; border:1px solid #7c3aed; border-radius:1rem; padding:2rem; width:90%; max-width:600px; }
-    .burn-button { background-color: #d84315; color: #fff; padding:0.5rem 1rem; border-radius:0.5rem; font-weight:bold; transition:all 0.2s; }
-    .burn-button:hover { background-color:#a71f00; }
-    .scan-button { background-color: #c084fc; color: #1a0c41; padding:0.5rem 1rem; border-radius:0.5rem; font-weight:bold; }
-    .scan-button:hover { background-color:#1a0c41; color:#c084fc; }
+body { font-family: 'Roboto Mono', monospace; background: #0d0628; color: #d1b4ff; min-height:100vh; display:flex; justify-content:center; align-items:flex-start; padding:2rem; }
+.card { background:#1a0c41; border:1px solid #7c3aed; border-radius:1rem; padding:2rem; width:100%; max-width:1000px; position:relative; }
+.tab-button { padding:0.5rem 1rem; font-weight:bold; border-b-2 border-transparent; cursor:pointer; transition:0.2s; }
+.tab-button.active { border-bottom-color:#a78bfa; }
+.scan-button { background-color: #c084fc; color: #1a0c41; padding:0.5rem 1rem; border-radius:0.5rem; font-weight:bold; }
+.scan-button:hover { background-color:#1a0c41; color:#c084fc; }
+.burn-button { background-color: #d84315; color: #fff; padding:0.5rem 1rem; border-radius:0.5rem; font-weight:bold; transition:0.2s; }
+.burn-button:hover { background-color:#a71f00; }
+.token-row { transition: transform 0.5s ease, opacity 0.5s ease; }
+.floating-sol { position:absolute; font-weight:bold; color:#34d399; animation: float-up 1s forwards; }
+@keyframes float-up { 0% {opacity:1; transform:translateY(0px);} 100% {opacity:0; transform:translateY(-40px);} }
+.wallet-panel { position:absolute; top:1rem; right:1rem; display:flex; align-items:center; gap:0.5rem; background:#1a0c41; border:1px solid #7c3aed; padding:0.25rem 0.5rem; border-radius:0.5rem; }
+.wallet-panel img { width:24px; height:24px; }
+.wallet-panel button { background:#d84315; border:none; color:white; padding:0.25rem 0.5rem; border-radius:0.25rem; font-size:0.75rem; cursor:pointer; }
+.wallet-panel button:hover { background:#a71f00; }
+.dashboard { display:flex; justify-content:space-around; margin-bottom:1rem; text-align:center; }
+.dashboard div { background:#2b1369; border:1px solid #7c3aed; padding:1rem; border-radius:0.5rem; flex:1; margin:0 0.5rem; }
+.dashboard div h3 { font-size:1.25rem; font-weight:bold; }
+.dashboard div p { font-size:1rem; margin-top:0.25rem; }
+.history-table { width:100%; border-collapse:collapse; margin-top:1rem; }
+.history-table th, .history-table td { border:1px solid #7c3aed; padding:0.5rem; text-align:center; }
+.history-table th { background:#2b1369; }
 </style>
 </head>
 <body>
-<div class="card">
-    <h1 class="text-2xl font-bold text-center mb-4">Sol Incinerator</h1>
+<div class="card relative">
+
+    <!-- Wallet Panel -->
+    <div class="wallet-panel hidden" id="wallet-panel">
+        <img src="" alt="Wallet Logo" id="wallet-logo">
+        <span id="wallet-balance">0 SOL</span>
+        <button id="disconnect-btn">Disconnect</button>
+    </div>
+
+    <h1 class="text-2xl font-bold text-center mb-4">Claim SOL Rent Dashboard</h1>
+
+    <!-- Dashboard -->
+    <div class="dashboard">
+        <div>
+            <h3 id="dash-balance">0 SOL</h3>
+            <p>Your Balance</p>
+        </div>
+        <div>
+            <h3 id="dash-burned">0</h3>
+            <p>Tokens Burned</p>
+        </div>
+        <div>
+            <h3 id="dash-refund">0 SOL</h3>
+            <p>Total Refunded</p>
+        </div>
+    </div>
+
+    <!-- Wallet connect button -->
     <button id="connect-wallet-btn" class="w-full flex items-center justify-center mb-4 scan-button">
         <i class="fas fa-wallet mr-2"></i> Connect Wallet
     </button>
-    <div id="wallet-display" class="text-center mb-4"></div>
+
     <div id="message" class="text-center mb-4"></div>
-    <div id="token-list" class="space-y-2"></div>
+
+    <!-- Tabs -->
+    <div class="flex space-x-2 mb-4" id="tabs">
+        <button class="tab-button active" data-tab="cleanup">CLEANUP</button>
+        <button class="tab-button" data-tab="tokens">TOKENS</button>
+        <button class="tab-button" data-tab="nfts">NFTS</button>
+        <button class="tab-button" data-tab="unknown">UNKNOWN</button>
+    </div>
+
+    <!-- Select/Deselect/Burn buttons -->
+    <div class="flex space-x-2 mb-4">
+        <button id="select-all-btn" class="flex-1 scan-button">Select All</button>
+        <button id="deselect-all-btn" class="flex-1 scan-button">Deselect All</button>
+        <button id="burn-selected-btn" class="flex-1 burn-button">Burn Selected</button>
+    </div>
+
+    <div id="token-list" class="space-y-2 border-t border-[#7c3aed] pt-2 max-h-96 overflow-y-auto relative"></div>
+
+    <!-- Burn history table -->
+    <h2 class="text-xl font-bold mt-4 mb-2">Burn History</h2>
+    <table class="history-table">
+        <thead>
+            <tr>
+                <th>Token Mint</th>
+                <th>SOL Refunded</th>
+                <th>Time</th>
+            </tr>
+        </thead>
+        <tbody id="history-body">
+            <!-- Burn history entries go here -->
+        </tbody>
+    </table>
 </div>
 
 <script src="https://unpkg.com/@solana/web3.js@1.45.1/lib/index.iife.js"></script>
 <script>
 const connectBtn = document.getElementById('connect-wallet-btn');
-const walletDisplay = document.getElementById('wallet-display');
+const walletPanel = document.getElementById('wallet-panel');
+const walletLogo = document.getElementById('wallet-logo');
+const walletBalanceEl = document.getElementById('wallet-balance');
+const disconnectBtn = document.getElementById('disconnect-btn');
+const dashBalance = document.getElementById('dash-balance');
+const dashBurned = document.getElementById('dash-burned');
+const dashRefund = document.getElementById('dash-refund');
 const messageBox = document.getElementById('message');
 const tokenList = document.getElementById('token-list');
+const selectAllBtn = document.getElementById('select-all-btn');
+const deselectAllBtn = document.getElementById('deselect-all-btn');
+const burnSelectedBtn = document.getElementById('burn-selected-btn');
+const tabButtons = document.querySelectorAll('#tabs .tab-button');
+const historyBody = document.getElementById('history-body');
 
 let provider = null;
 let publicKey = null;
 let connection = null;
+let currentTokens = [];
+let totalBurned = 0;
+let totalRefunded = 0;
 
-const BACKEND_URL = 'http://localhost:3000'; // Change if deployed
+const WALLET_LOGOS = {
+    "Phantom": "https://phantom.app/img/logo.png",
+    "Solflare": "https://solflare.com/img/logo.png",
+    "Default": "https://cryptologos.cc/logos/solana-sol-logo.png"
+};
 
-function showMessage(msg, error=false) {
+function showMessage(msg, error=false){
     messageBox.textContent = msg;
     messageBox.style.color = error ? 'red' : '#d1b4ff';
 }
 
+async function updateBalance(){
+    if(publicKey && connection){
+        const balance = await connection.getBalance(publicKey);
+        const sol = (balance/1e9).toFixed(4);
+        walletBalanceEl.textContent = sol + ' SOL';
+        dashBalance.textContent = sol;
+    }
+}
+
+// Detect wallet type
+function detectWalletLogo(){
+    if(!provider) return WALLET_LOGOS["Default"];
+    if(provider.isPhantom) return WALLET_LOGOS["Phantom"];
+    if(provider.isSolflare) return WALLET_LOGOS["Solflare"];
+    return WALLET_LOGOS["Default"];
+}
+
+// Wallet connection
 window.onload = () => {
     if (!("solana" in window)) {
         showMessage("No Solana wallet detected. Install Phantom or Solflare.", true);
@@ -52,79 +161,133 @@ window.onload = () => {
 };
 
 connectBtn.addEventListener('click', async () => {
-    if (!("solana" in window)) return;
     provider = window.solana;
     try {
         const resp = await provider.connect();
         publicKey = resp.publicKey;
-        walletDisplay.textContent = `Wallet: ${publicKey.toBase58()}`;
         connection = new solanaWeb3.Connection(solanaWeb3.clusterApiUrl('mainnet-beta'), 'confirmed');
-        showMessage("Connected! Scanning tokens...");
-        fetchAndDisplayTokens();
-    } catch (e) {
-        showMessage(`Connection failed: ${e.message}`, true);
-    }
+        walletPanel.classList.remove('hidden');
+        walletLogo.src = detectWalletLogo();
+        connectBtn.style.display='none';
+        showMessage("Connected! Loading tokens...");
+        await updateBalance();
+        await fetchAndDisplayTokens();
+    } catch(e){ showMessage(`Connection failed: ${e.message}`, true);}
 });
 
-async function fetchAndDisplayTokens() {
+disconnectBtn.addEventListener('click', async ()=>{
+    await provider.disconnect();
+    publicKey = null;
+    currentTokens = [];
+    tokenList.innerHTML='';
+    walletPanel.classList.add('hidden');
+    connectBtn.style.display='flex';
+    showMessage("Wallet disconnected");
+});
+
+// Fetch tokens
+async function fetchAndDisplayTokens(){
     tokenList.innerHTML = '';
-    try {
-        const tokenAccounts = await connection.getParsedTokenAccountsByOwner(publicKey, { programId: solanaWeb3.TOKEN_PROGRAM_ID });
-        if (tokenAccounts.value.length === 0) {
-            tokenList.textContent = 'No tokens found.';
-            return;
-        }
-        tokenAccounts.value.forEach(accountInfo => {
-            const token = accountInfo.account.data.parsed.info;
+    currentTokens = [];
+    try{
+        const accounts = await connection.getParsedTokenAccountsByOwner(publicKey,{programId:solanaWeb3.TOKEN_PROGRAM_ID});
+        if(accounts.value.length===0){ tokenList.textContent='No tokens found.'; return;}
+        accounts.value.forEach(a=>{
+            const token = a.account.data.parsed.info;
             const mint = token.mint;
             const balance = token.tokenAmount.uiAmount || 0;
-            const isVacant = balance === 0;
-            const div = document.createElement('div');
-            div.classList.add('flex', 'justify-between', 'items-center', 'p-2', 'border-b', 'border-[#7c3aed]');
-            div.innerHTML = `
-                <div>
-                    <p class="font-bold">${isVacant ? `Vacant Account: ${mint.substring(0,4)}...` : `Token: ${mint.substring(0,4)}...`}</p>
-                    <p class="text-sm">${isVacant ? 'Ready for cleanup' : 'Balance: '+balance}</p>
-                </div>
-                <button class="burn-button" data-mint="${mint}" data-vacant="${isVacant}">${isVacant?'Cleanup':'Burn'}</button>
-            `;
-            tokenList.appendChild(div);
+            const isVacant = balance===0;
+            currentTokens.push({mint, balance, isVacant, selected:false});
         });
-        document.querySelectorAll('.burn-button').forEach(btn => {
-            btn.addEventListener('click', e => {
-                const mint = e.target.dataset.mint;
-                const isVacant = e.target.dataset.vacant === 'true';
-                burnAndRefund(mint, isVacant, e.target.closest('div'));
-            });
-        });
-    } catch (err) {
-        showMessage(`Failed to fetch tokens: ${err.message}`, true);
-    }
+        renderTokens();
+    }catch(err){ showMessage(`Error fetching tokens: ${err.message}`, true);}
 }
 
-async function burnAndRefund(mint, isVacant, element) {
-    showMessage(`Burning ${isVacant?'vacant account':'token'} ${mint}...`);
-    // Simulate burn delay
-    setTimeout(async () => {
-        element.remove();
-        showMessage(`"${mint}" burned! Requesting refund from backend...`);
-        try {
-            const resp = await fetch(BACKEND_URL + '/refund', {
-                method: 'POST',
-                headers: { 'Content-Type':'application/json' },
-                body: JSON.stringify({ signature: mint }) // using mint as dummy tx signature
-            });
-            const data = await resp.json();
-            if (data.ok) {
-                showMessage(`Refund sent: ${data.lamports/1e9} SOL`);
-            } else {
-                showMessage(`Refund failed: ${data.reason||data.error}`, true);
-            }
-        } catch (err) {
-            showMessage(`Refund request error: ${err.message}`, true);
-        }
-    }, 1500);
+function renderTokens(){
+    tokenList.innerHTML='';
+    currentTokens.forEach((t,i)=>{
+        const div = document.createElement('div');
+        div.classList.add('flex','justify-between','items-center','p-2','border-b','border-[#7c3aed]','token-row');
+        div.innerHTML = `
+            <div>
+                <input type="checkbox" data-index="${i}" class="mr-2" ${t.selected?'checked':''}>
+                <span class="font-bold">${t.isVacant?`Vacant:${t.mint.substring(0,4)}...`:`Token:${t.mint.substring(0,4)}...`}</span>
+                <span class="text-sm ml-2">${t.isVacant?'Ready':'Balance:'+t.balance}</span>
+            </div>
+            <button class="burn-button" data-index="${i}">${t.isVacant?'Cleanup':'Burn'}</button>
+        `;
+        tokenList.appendChild(div);
+    });
+
+    tokenList.querySelectorAll('input[type="checkbox"]').forEach(cb=>{
+        cb.addEventListener('change', e=>{
+            const idx = parseInt(cb.dataset.index);
+            currentTokens[idx].selected = cb.checked;
+        });
+    });
+
+    tokenList.querySelectorAll('.burn-button').forEach(btn=>{
+        btn.addEventListener('click', async e=>{
+            const idx = parseInt(btn.dataset.index);
+            await burnAndRefund([currentTokens[idx]]);
+        });
+    });
 }
+
+// Burn tokens
+async function burnAndRefund(tokens){
+    for(const t of tokens){
+        showMessage(`Burning ${t.isVacant?'vacant account':'token'} ${t.mint}...`);
+
+        const row = [...tokenList.children].find(div => div.querySelector('button').dataset.index==currentTokens.indexOf(t));
+        if(row){
+            row.style.transform='scale(0)';
+            row.style.opacity='0';
+        }
+
+        await new Promise(r=>setTimeout(r,500));
+
+        const solAnim = document.createElement('div');
+        solAnim.classList.add('floating-sol');
+        solAnim.style.left=row.offsetLeft + row.offsetWidth/2 + 'px';
+        solAnim.style.top=row.offsetTop + 'px';
+        const refundAmount = 0.0015;
+        solAnim.textContent = `+${refundAmount.toFixed(4)} SOL`;
+        tokenList.appendChild(solAnim);
+        setTimeout(()=>solAnim.remove(),1000);
+
+        totalBurned++;
+        totalRefunded += refundAmount;
+        dashBurned.textContent = totalBurned;
+        dashRefund.textContent = totalRefunded.toFixed(4)+' SOL';
+
+        // Add burn record to history table
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${t.mint.substring(0,8)}...</td><td>${refundAmount.toFixed(4)}</td><td>${new Date().toLocaleTimeString()}</td>`;
+        historyBody.prepend(tr);
+
+        await updateBalance();
+    }
+
+    currentTokens = currentTokens.filter(t=>!tokens.includes(t));
+    renderTokens();
+}
+
+// Select/Deselect all
+selectAllBtn.addEventListener('click', ()=>{ currentTokens.forEach(t=>t.selected=true); renderTokens(); });
+deselectAllBtn.addEventListener('click', ()=>{ currentTokens.forEach(t=>t.selected=false); renderTokens(); });
+burnSelectedBtn.addEventListener('click', ()=> burnAndRefund(currentTokens.filter(t=>t.selected)));
+
+// Tabs
+tabButtons.forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+        tabButtons.forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        showMessage(`Switched to tab: ${btn.dataset.tab}`);
+        if(['cleanup','tokens'].includes(btn.dataset.tab)) fetchAndDisplayTokens();
+        else tokenList.innerHTML=`<div class="text-center text-[#a78bfa] mt-4">No content for ${btn.dataset.tab.toUpperCase()}</div>`;
+    });
+});
 </script>
 </body>
 </html>
