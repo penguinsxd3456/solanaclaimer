@@ -1,18 +1,14 @@
 {
-  "name": "sol-incinerator-backend",
+  "name": "claimsolrent",
   "version": "1.0.0",
-  "main": "index.js",
+  "description": "Claim SOL Rent - Solana token burn dashboard",
+  "main": "index.html",
   "scripts": {
-    "start": "node index.js"
+    "build": "echo 'Nothing to build, static site.'",
+    "start": "echo 'No server needed, just open index.html'"
   },
-  "dependencies": {
-    "@solana/web3.js": "^1.87.6",
-    "express": "^4.18.2",
-    "body-parser": "^1.20.2",
-    "lowdb": "^6.0.1",
-    "nanoid": "^4.0.0",
-    "cors": "^2.8.5",
-    "dotenv": "^16.0.3",
-    "bs58": "^5.0.0"
-  }
+  "author": "claimsolteam",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
 }
