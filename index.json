@@ -1,0 +1,165 @@
+require('dotenv').config();
+const express = require('express');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const { Connection, PublicKey, Keypair, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+const { Low, JSONFile } = require('lowdb');
+const path = require('path');
+
+const OWNER_PUBKEY = new PublicKey('Eu94CJ1rjdLSXQHNfj6zRFqn4iuhUvTNpJhP9poXigsh');
+const RPC_URL = process.env.RPC_URL || 'https://api.mainnet-beta.solana.com';
+const PORT = process.env.PORT || 3000;
+const USER_REFUND_SOL = parseFloat(process.env.USER_REFUND_SOL || '0.0015');
+const POLL_INTERVAL_SECONDS = parseInt(process.env.POLL_INTERVAL_SECONDS || '20', 10);
+
+if (!process.env.OWNER_SECRET_KEY_BASE58) {
+  console.error('ERROR: OWNER_SECRET_KEY_BASE58 not set in .env.');
+  process.exit(1);
+}
+
+// Parse keypair from env
+let ownerKeypair;
+try {
+  const raw = process.env.OWNER_SECRET_KEY_BASE58.trim();
+  if (raw.startsWith('[')) {
+    const arr = JSON.parse(raw);
+    ownerKeypair = Keypair.fromSecretKey(Buffer.from(arr));
+  } else {
+    const bs58 = require('bs58');
+    ownerKeypair = Keypair.fromSecretKey(bs58.decode(raw));
+  }
+} catch (e) {
+  console.error('Failed to parse OWNER secret key:', e);
+  process.exit(1);
+}
+
+const connection = new Connection(RPC_URL, 'confirmed');
+const app = express();
+app.use(cors());
+app.use(bodyParser.json());
+
+// Lowdb for persistence
+const dbFile = path.join(__dirname, 'db.json');
+const adapter = new JSONFile(dbFile);
+const db = new Low(adapter);
+
+async function initDB() {
+  await db.read();
+  db.data = db.data || { processedTxs: [], refundLog: [] };
+  await db.write();
+}
+initDB();
+
+const USER_REFUND_LAMPORTS = Math.round(USER_REFUND_SOL * LAMPORTS_PER_SOL);
+
+async function alreadyProcessed(signature) {
+  await db.read();
+  return db.data.processedTxs.includes(signature);
+}
+
+async function markProcessed(signature, user, lamports) {
+  await db.read();
+  db.data.processedTxs.push(signature);
+  db.data.refundLog.push({
+    id: `${Date.now()}-${signature}`,
+    signature,
+    user,
+    lamports,
+    time: new Date().toISOString()
+  });
+  await db.write();
+}
+
+// Verify closeAccount instruction
+async function verifyCloseToOwner(signature) {
+  const parsed = await connection.getParsedTransaction(signature, { maxSupportedTransactionVersion: 0 });
+  if (!parsed || !parsed.transaction) return null;
+  const message = parsed.transaction.message;
+  const instructions = message.instructions || [];
+  for (const ix of instructions) {
+    if (ix.program === 'spl-token' && ix.parsed && ix.parsed.type === 'closeAccount') {
+      const info = ix.parsed.info;
+      if (!info.destination || !info.authority) continue;
+      if (info.destination === OWNER_PUBKEY.toBase58()) {
+        return { userPubkey: info.authority, account: info.account };
+      }
+    }
+  }
+  return null;
+}
+
+// Send SOL refund
+async function sendRefundToUser(recipientPubkey, lamports) {
+  const tx = new Transaction().add(
+    SystemProgram.transfer({
+      fromPubkey: ownerKeypair.publicKey,
+      toPubkey: new PublicKey(recipientPubkey),
+      lamports
+    })
+  );
+  tx.feePayer = ownerKeypair.publicKey;
+  const { blockhash } = await connection.getLatestBlockhash();
+  tx.recentBlockhash = blockhash;
+  tx.sign(ownerKeypair);
+  return await connection.sendRawTransaction(tx.serialize());
+}
+
+// Health endpoint
+app.get('/health', (req, res) => res.json({ ok: true, owner: ownerKeypair.publicKey.toBase58(), userRefundSOL: USER_REFUND_SOL }));
+
+// Refund endpoint
+app.post('/refund', async (req, res) => {
+  try {
+    const { signature } = req.body;
+    if (!signature) return res.status(400).json({ error: 'signature required' });
+
+    if (await alreadyProcessed(signature)) return res.status(200).json({ ok: false, reason: 'already_processed' });
+
+    const verified = await verifyCloseToOwner(signature);
+    if (!verified) return res.status(400).json({ ok: false, reason: 'tx_not_valid_close_to_owner' });
+
+    if (verified.userPubkey === OWNER_PUBKEY.toBase58()) {
+      return res.status(400).json({ ok: false, reason: 'authority_is_owner' });
+    }
+
+    const sig = await sendRefundToUser(verified.userPubkey, USER_REFUND_LAMPORTS);
+    await markProcessed(signature, verified.userPubkey, USER_REFUND_LAMPORTS);
+    return res.json({ ok: true, refundTx: sig, refundedTo: verified.userPubkey, lamports: USER_REFUND_LAMPORTS });
+  } catch (err) {
+    console.error('Refund error', err);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Polling worker
+async function pollOwnerWallet() {
+  try {
+    const sigs = await connection.getSignaturesForAddress(OWNER_PUBKEY, { limit: 50 });
+    for (const s of sigs) {
+      const signature = s.signature;
+      if (await alreadyProcessed(signature)) continue;
+      const verified = await verifyCloseToOwner(signature);
+      if (!verified) continue;
+      if (verified.userPubkey === OWNER_PUBKEY.toBase58()) {
+        await markProcessed(signature, verified.userPubkey, 0);
+        continue;
+      }
+      try {
+        const sig = await sendRefundToUser(verified.userPubkey, USER_REFUND_LAMPORTS);
+        await markProcessed(signature, verified.userPubkey, USER_REFUND_LAMPORTS);
+      } catch (err) {
+        console.error('Failed to send refund for', signature, err);
+      }
+    }
+  } catch (err) {
+    console.error('Polling error', err);
+  } finally {
+    setTimeout(pollOwnerWallet, POLL_INTERVAL_SECONDS * 1000);
+  }
+}
+pollOwnerWallet();
+
+app.listen(PORT, () => {
+  console.log(`Sol incinerator backend running on port ${PORT}`);
+  console.log(`Owner wallet: ${ownerKeypair.publicKey.toBase58()}`);
+});
